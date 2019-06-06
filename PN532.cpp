@@ -27,7 +27,7 @@ void PN532::_wakeup(void) {
   _spi.exit();
 }
 
-bool PN532::_wait_ready(uint16_t timeout=1000) {
+bool PN532::_wait_ready(uint16_t timeout) {
   uint16_t timer = 0;
   bool ready = false;
   uint8_t status;
