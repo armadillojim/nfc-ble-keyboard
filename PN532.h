@@ -18,6 +18,7 @@ public:
   bool get_firmware_version(uint32_t * version);
   bool SAM_disable(void);
   bool read_passive_target_id(uint8_t * uid, uint8_t * uid_len, uint8_t card_baud_rate=ISO14443A_BAUD, uint16_t timeout=1000);
+  bool power_down(void);
   // UNIMPLEMENTED: ntag2xx_write_block(block_number, data) and ntag2xx_read_block(block_number)
 
 private:
@@ -127,6 +128,7 @@ private:
   // constants for powering down and waking up
   enum POWERDOWN_E : uint8_t {
     POWERDOWN_WAKEFROM_SPI        = 0x20,
+    POWERDOWN_NO_IRQ              = 0x00,
     POWERDOWN_DELAY               = 1, // milliseconds
     WAKE_DELAY                    = 2 // milliseconds (max), or 100µs min
   };

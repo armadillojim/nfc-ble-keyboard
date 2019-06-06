@@ -180,3 +180,81 @@ bool PN532::get_firmware_version(uint32_t * version) {
   }
   return (status == SUCCESS && version_length == 4);
 }
+
+bool PN532::SAM_disable(void) {
+  // normal mode (SAM unused), no timeout (we use ACK to abort), and no IRQ
+  uint8_t params[] = { 0x01, 0x00, 0x00 };
+  uint8_t empty_length = 0;
+  uint8_t status = _call_function(COMMAND_SAMCONFIGURATION, params, 3, nullptr, &empty_length, 500);
+  if (_debug && status) {
+    Serial.print(F("COMMAND_SAMCONFIGURATION failed: "));
+    Serial.println(status, HEX);
+  }
+  return (status == SUCCESS);
+}
+
+// Largest response we care about
+#define MAX_PAYLOAD_LEN (23)
+bool PN532::read_passive_target_id(uint8_t * uid, uint8_t * uid_len, uint8_t card_baud_rate, uint16_t timeout) {
+  uint8_t params[] = { 0x01, card_baud_rate };
+  uint8_t r[MAX_PAYLOAD_LEN], r_len = MAX_PAYLOAD_LEN, r_uid_len, r_uid_offset, i;
+  uint8_t status = _call_function(COMMAND_INLISTPASSIVETARGET, params, 2, r, &r_len, timeout);
+  if (status || r_len <= 1 || r[0] == 0) { return false; }
+  switch (card_baud_rate) {
+    case ISO14443A_BAUD:
+      if (r_len<6) { return false; }
+      r_uid_len = r[5];
+      r_uid_offset = 6;
+      break;
+    case FELICA_212_BAUD:
+    case FELICA_424_BAUD:
+      r_uid_len = 8;
+      r_uid_offset = 4;
+      break;
+    case ISO14443B_BAUD:
+      // Note: there are many flavors of ISO14443B cards.  We assume the most
+      // common has an 8-byte UID in the attribute response.  However, some
+      // cards do not store anything in the attribute response; some others
+      // store an EPC of 24 bytes.  Perhaps it would be best to get the 4-byte
+      // PUPI from the ATQB response (at offset 3).
+      if (r_len<15) { return false; }
+      r_uid_len = r[14];
+      r_uid_offset = 15;
+      break;
+    case INNOVISION_JEWEL_BAUD:
+      r_uid_len = 4;
+      r_uid_offset = 4;
+      break;
+    default:
+      // UNIMPLEMENTED
+      return false;
+  }
+  // make sure we have enough data, and return the UID
+  if (r_len<r_uid_offset+r_uid_len || (*uid_len)<r_uid_len) { return false; }
+  *uid_len = r_uid_len;
+  for (i=0; i<r_uid_len; i++) { uid[i] = r[r_uid_offset+i]; }
+  return true;
+}
+
+bool PN532::power_down(void) {
+  uint8_t params[] = { POWERDOWN_WAKEFROM_SPI, POWERDOWN_NO_IRQ }
+  uint8_t powerdown_status, powerdown_status_len = 1;
+  uint8_t status = _call_function(COMMAND_POWERDOWN, params, 2, &powerdown_status, &powerdown_status_len, 500);
+  if (_debug) {
+    if (status) {
+      Serial.print(F("COMMAND_POWERDOWN failed: "));
+      Serial.println(status, HEX);
+    }
+    else if (powerdown_status_len && powerdown_status) {
+      Serial.print(F("COMMAND_POWERDOWN error: "));
+      Serial.println(powerdown_status, HEX);
+    }
+  }
+  if (status == SUCCESS && powerdown_status_len == 1 && powerdown_status == SUCCESS) {
+    delay(POWERDOWN_DELAY);
+    return true;
+  }
+  else {
+    return false;
+  }
+}
