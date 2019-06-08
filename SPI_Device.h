@@ -4,6 +4,9 @@
 #include <Arduino.h>
 #include <SPI.h>
 
+// FIXME: ArduinoCore-samd hasn't migrated to the new API yet
+typedef uint8_t pin_size_t;
+
 class SPI_Device {
 
 public:
@@ -14,6 +17,7 @@ public:
   void enter(void);
   void exit(void);
   uint8_t transfer(uint8_t b);
+  void transfer(uint8_t *b, uint8_t count);
 
 private:
 
@@ -23,6 +27,6 @@ private:
   pin_size_t _cs_pin;
   pin_size_t _irq_pin;
 
-}
+};
 
 #endif

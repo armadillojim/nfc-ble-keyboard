@@ -1,11 +1,20 @@
-#include <stdexcept>
-
 #include "PN532.h"
 
-const SPISettings pn532_spi_settings(1000000, LSBFIRST, SPI_MODE0);
+const uint8_t PN532::ACK_FRAME[]   = { 0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00 };
+const uint8_t PN532::NACK_FRAME[]  = { 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00 };
+const uint8_t PN532::ERROR_FRAME[] = { 0x00, 0x00, 0xFF, 0x01, 0xFF, 0x7F, 0x81, 0x00 };
 
-PN532::PN532(pin_size_t cs_pin, bool debug) : _debug(debug) {
-  _spi = SPI_Device(pn532_spi_settings, cs_pin);
+const SPISettings PN532::_spi_settings(1000000, LSBFIRST, SPI_MODE0);
+
+// Serial.print HEX doesn't offer an option to pad left with 0s
+void _print_uint8_hex(uint8_t b) {
+  if (b < 0x10) {
+    Serial.print("0");
+  }
+  Serial.print(b, HEX);
+}
+
+PN532::PN532(pin_size_t cs_pin, bool debug) : _debug(debug), _spi(_spi_settings, cs_pin) {
   // try to talk to the PN532
   _wakeup();
   uint32_t version;
@@ -13,11 +22,17 @@ PN532::PN532(pin_size_t cs_pin, bool debug) : _debug(debug) {
   if (success) { return; }
   // first time often fails; if so, try again
   success = get_firmware_version(&version);
-  if (success) { return; }
+  if (success) { _wake_success = true; return; }
   else {
-    throw std::runtime_error(F("Could not wake PN532"));
+    // throw std::runtime_error(F("Could not wake PN532"));
+    // Arduino can't throw exceptions so we hack in a flag to detect wake failure
+    _wake_success = false;
     return;
   }
+}
+
+bool PN532::wake_success(void) {
+  return _wake_success;
 }
 
 void PN532::_wakeup(void) {
@@ -59,12 +74,13 @@ void PN532::_write_data(uint8_t * data, uint8_t count) {
 }
 
 uint8_t PN532::_read_frame(uint8_t * response, uint8_t * count) {
-  const uint8_t frame_length = count+8;
+  const uint8_t frame_length = (*count)+8;
   uint8_t i, checksum, frame[frame_length];
   _read_data(frame, frame_length);
   if (_debug) {
     Serial.print(F("Read frame: "));
-    for (i=0; i<frame_length, i++) { Serial.print(frame[i], HEX); }
+    for (i=0; i<frame_length; i++) { _print_uint8_hex(frame[i]); }
+    Serial.println();
   }
   // Swallow all the 0x00 values that precede 0xFF
   // NB: sometimes frames are missing the preamble
@@ -79,7 +95,8 @@ uint8_t PN532::_read_frame(uint8_t * response, uint8_t * count) {
   // Validate length
   uint8_t response_length = frame[offset];
   if (response_length == 0) { return ERR_EMPTY_RESPONSE; }
-  if (response_length + frame[offset+1] != 0) { return ERR_BAD_LENGTH_CHECKSUM; }
+  checksum = response_length + frame[offset+1]; // force to uint8_t
+  if (checksum != 0) { return ERR_BAD_LENGTH_CHECKSUM; }
   offset += 2;
   // Make sure the claimed response length doesn't overrun the read length (with
   // two bytes for data checksum and postamble)
@@ -92,13 +109,15 @@ uint8_t PN532::_read_frame(uint8_t * response, uint8_t * count) {
   // Check first and last bytes: did this frame come from the PN532? is there a postamble?
   if (frame[offset] != PN532TOHOST) { return ERR_BAD_TFI; }
   if (frame[offset+response_length+1] != POSTAMBLE) { return ERR_BAD_POSTAMBLE; }
+  offset += 1;
+  response_length -= 1;
   // Return frame data
-  if (response_length > count) {
+  if (response_length > (*count)) {
     // NB: this is necessary because the preamble and part of the start code may be missing
     return ERR_LONG_RESPONSE;
   }
-  count = response_length;
-  for (i=0; i<response_length; i++) { response[i] = frame[offset+1+i]; }
+  *count = response_length;
+  for (i=0; i<response_length; i++) { response[i] = frame[offset+i]; }
   return SUCCESS;
 }
 
@@ -119,62 +138,67 @@ void PN532::_write_frame(uint8_t * data, uint8_t count) {
   frame[7+count] = POSTAMBLE;
   if (_debug) {
     Serial.print(F("Writing frame: "));
-    for (i=0; i<frame_length, i++) { Serial.print(frame[i], HEX); }
+    for (i=0; i<frame_length; i++) { _print_uint8_hex(frame[i]); }
     Serial.println();
   }
   _write_data(frame, frame_length);
 }
 
-uint8_t PN532::_call_function(uint8_t command, uint8_t * params, uint8_t params_len, uint8_t * response, uint8_t * response_len, uint16_t timeout) {
+// NB: Arduino doesn't support try/catch so we create a wrapper
+uint8_t PN532::_call_function_try(uint8_t command, uint8_t * params, uint8_t params_len, uint8_t * response, uint8_t * response_len, uint16_t timeout) {
   uint8_t i, status, command_data[1+params_len], ack_p[ACK_LEN], response_data[1+(*response_len)];
-  try {
-    // write the command data to the PN532
-    command_data[0] = command;
-    for (i=0; i<params_len; i++) { command_data[i+1] = params[i]; }
-    _write_frame(command_data, 1+params_len);
-    // wait for ACK
-    if (!_wait_ready(timeout)) {
-      status = ERR_ACK_TIMEOUT;
-      throw std::runtime_error(F("timed out waiting for command ACK"));
-    }
-    _read_data(ack_p, ACK_LEN);
-    status = SUCCESS;
-    for (i=0; i<ACK_LEN; i++) {
-      if (ack_p[i] != ACK_FRAME[i]) { status = ERR_NO_COMMAND_ACK; }
-    }
-    if (status) { throw std::runtime_error(F("no ACK after command")); }
-    // wait for response
-    if (!_wait_ready(timeout)) {
-      status = ERR_RESPONSE_TIMEOUT;
-      throw std::runtime_error(F("timed out waiting for command response"));
-    }
-    *response_len += 1
-    status = _read_frame(response_data, response_len);
-    if (status) { throw std::runtime_error(F("bad command response frame")); }
-    if (response_data[0] != command+1) {
-      status = ERR_WRONG_COMMAND_RESPONSE;
-      throw std::runtime_error(F("wrong command response"));
-    }
-    // return the response
-    *response_len -= 1;
-    for (i=0; i<response_len; i++) { response[i] = response_data[i+1]; }
-    return SUCCESS;
-  } catch( const std::runtime_error& e ) {
+  // write the command data to the PN532
+  command_data[0] = command;
+  for (i=0; i<params_len; i++) { command_data[i+1] = params[i]; }
+  _write_frame(command_data, 1+params_len);
+  // wait for ACK
+  if (!_wait_ready(timeout)) {
+    status = ERR_ACK_TIMEOUT;
+    return status; // throw std::runtime_error(F("timed out waiting for command ACK"));
+  }
+  _read_data(ack_p, ACK_LEN);
+  status = SUCCESS;
+  for (i=0; i<ACK_LEN; i++) {
+    if (ack_p[i] != ACK_FRAME[i]) { status = ERR_NO_COMMAND_ACK; }
+  }
+  if (status) { return status; } // throw std::runtime_error(F("no ACK after command"));
+  // wait for response
+  if (!_wait_ready(timeout)) {
+    status = ERR_RESPONSE_TIMEOUT;
+    return status; // throw std::runtime_error(F("timed out waiting for command response"));
+  }
+  *response_len += 1;
+  status = _read_frame(response_data, response_len);
+  if (status) { return status; } // throw std::runtime_error(F("bad command response frame"));
+  if (response_data[0] != command+1) {
+    status = ERR_WRONG_COMMAND_RESPONSE;
+    return status; // throw std::runtime_error(F("wrong command response"));
+  }
+  // return the response
+  *response_len -= 1;
+  for (i=0; i<(*response_len); i++) { response[i] = response_data[i+1]; }
+  return SUCCESS;
+}
+
+uint8_t PN532::_call_function(uint8_t command, uint8_t * params, uint8_t params_len, uint8_t * response, uint8_t * response_len, uint16_t timeout) {
+  uint8_t status = _call_function_try(command, params, params_len, response, response_len, timeout);
+  if (status) {
     // something went wrong while trying the command:
     // * send an ACK to abort (and reset communications)
     // * return the bad status code
-    for (i=0; i<ACK_LEN; i++) { ack_p[i] = ACK_FRAME[i]; }
+    uint8_t ack_p[ACK_LEN];
+    for (uint8_t i=0; i<ACK_LEN; i++) { ack_p[i] = ACK_FRAME[i]; }
     _write_data(ack_p, ACK_LEN);
-    return status;
   }
+  return status;
 }
 
 bool PN532::get_firmware_version(uint32_t * version) {
   uint8_t version_length = 4;
-  uint8_t status = _call_function(COMMAND_GETFIRMWAREVERSION, nullptr, 0, version, &version_length, 500);
+  uint8_t status = _call_function(COMMAND_GETFIRMWAREVERSION, nullptr, 0, (uint8_t *)version, &version_length, 500);
   if (_debug && status) {
     Serial.print(F("COMMAND_GETFIRMWAREVERSION failed: "));
-    Serial.print(status, HEX);
+    _print_uint8_hex(status);
     Serial.print(F(" "));
     Serial.println(*version, HEX);
   }
@@ -188,7 +212,8 @@ bool PN532::SAM_disable(void) {
   uint8_t status = _call_function(COMMAND_SAMCONFIGURATION, params, 3, nullptr, &empty_length, 500);
   if (_debug && status) {
     Serial.print(F("COMMAND_SAMCONFIGURATION failed: "));
-    Serial.println(status, HEX);
+    _print_uint8_hex(status);
+    Serial.println();
   }
   return (status == SUCCESS);
 }
@@ -237,17 +262,19 @@ bool PN532::read_passive_target_id(uint8_t * uid, uint8_t * uid_len, uint8_t car
 }
 
 bool PN532::power_down(void) {
-  uint8_t params[] = { POWERDOWN_WAKEFROM_SPI, POWERDOWN_NO_IRQ }
+  uint8_t params[] = { POWERDOWN_WAKEFROM_SPI, POWERDOWN_NO_IRQ };
   uint8_t powerdown_status, powerdown_status_len = 1;
   uint8_t status = _call_function(COMMAND_POWERDOWN, params, 2, &powerdown_status, &powerdown_status_len, 500);
   if (_debug) {
     if (status) {
       Serial.print(F("COMMAND_POWERDOWN failed: "));
-      Serial.println(status, HEX);
+      _print_uint8_hex(status);
+      Serial.println();
     }
     else if (powerdown_status_len && powerdown_status) {
       Serial.print(F("COMMAND_POWERDOWN error: "));
-      Serial.println(powerdown_status, HEX);
+      _print_uint8_hex(powerdown_status);
+      Serial.println();
     }
   }
   if (status == SUCCESS && powerdown_status_len == 1 && powerdown_status == SUCCESS) {

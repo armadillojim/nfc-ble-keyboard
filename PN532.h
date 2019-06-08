@@ -20,14 +20,17 @@ public:
   bool read_passive_target_id(uint8_t * uid, uint8_t * uid_len, uint8_t card_baud_rate=ISO14443A_BAUD, uint16_t timeout=1000);
   bool power_down(void);
   // UNIMPLEMENTED: ntag2xx_write_block(block_number, data) and ntag2xx_read_block(block_number)
+  bool wake_success(void);
 
 private:
 
   // MEMBERS
 
   bool _debug;
-  SPI_Device _spi_d;
+  static const SPISettings _spi_settings;
+  SPI_Device _spi;
   // UNIMPLEMENTED: pin_size_t _irq_pin;
+  bool _wake_success;
 
   // METHODS
 
@@ -38,6 +41,7 @@ private:
   uint8_t _read_frame(uint8_t * response, uint8_t * count);
   void _write_frame(uint8_t * data, uint8_t count);
   uint8_t _call_function(uint8_t command, uint8_t * params, uint8_t params_len, uint8_t * response, uint8_t * response_len, uint16_t timeout=1000);
+  uint8_t _call_function_try(uint8_t command, uint8_t * params, uint8_t params_len, uint8_t * response, uint8_t * response_len, uint16_t timeout);
 
   // CONSTANTS
 
@@ -76,9 +80,9 @@ private:
 
   // special frames
   static const uint8_t ACK_LEN       = 6;
-  static const uint8_t ACK_FRAME[]   = { 0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00 };
-  static const uint8_t NACK_FRAME[]  = { 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00 };
-  static const uint8_t ERROR_FRAME[] = { 0x00, 0x00, 0xFF, 0x01, 0xFF, 0x7F, 0x81, 0x00 };
+  static const uint8_t ACK_FRAME[];
+  static const uint8_t NACK_FRAME[];
+  static const uint8_t ERROR_FRAME[];
 
   // PN532 over SPI protocol: see section 6.2.5 of manual
   enum SPI_E : uint8_t {
@@ -146,6 +150,6 @@ private:
     INNOVISION_JEWEL_BAUD         = 0x04
   };
 
-}
+};
 
 #endif

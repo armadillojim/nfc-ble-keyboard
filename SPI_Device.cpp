@@ -14,14 +14,17 @@ SPI_Device::SPI_Device(SPISettings settings, pin_size_t cs_pin, pin_size_t irq_p
   pinMode(_cs_pin, OUTPUT);
   digitalWrite(_cs_pin, HIGH);
 }
-SPI_Device::enter() {
+void SPI_Device::enter(void) {
   SPI.beginTransaction(_settings);
   digitalWrite(_cs_pin, LOW);
 }
-SPI_Device::exit() {
+void SPI_Device::exit(void) {
   digitalWrite(_cs_pin, HIGH);
   SPI.endTransaction();
 }
-SPI_Device::transfer(uint8_t b) {
+uint8_t SPI_Device::transfer(uint8_t b) {
   return SPI.transfer(b);
+}
+void SPI_Device::transfer(uint8_t *b, uint8_t count) {
+  SPI.transfer(b, count);
 }
