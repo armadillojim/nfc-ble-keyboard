@@ -8,6 +8,8 @@
 
 #include "SPI_Device.h"
 
+void _print_uint8_hex(uint8_t b);
+
 class PN532 {
 
 public:
@@ -17,7 +19,7 @@ public:
   PN532(pin_size_t cs_pin, bool debug=false); // UNIMPLEMENTED: pin_size_t irq_pin
   bool get_firmware_version(uint32_t * version);
   bool SAM_disable(void);
-  bool read_passive_target_id(uint8_t * uid, uint8_t * uid_len, uint8_t card_baud_rate=ISO14443A_BAUD, uint16_t timeout=1000);
+  bool read_passive_target_id(uint8_t * uid, uint8_t * uid_len, uint8_t card_baud_rate=ISO14443A_BAUD, uint16_t timeout=100);
   bool power_down(void);
   // UNIMPLEMENTED: ntag2xx_write_block(block_number, data) and ntag2xx_read_block(block_number)
   bool wake_success(void);

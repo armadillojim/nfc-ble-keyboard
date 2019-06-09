@@ -19,7 +19,7 @@ PN532::PN532(pin_size_t cs_pin, bool debug) : _debug(debug), _spi(_spi_settings,
   _wakeup();
   uint32_t version;
   bool success = get_firmware_version(&version);
-  if (success) { return; }
+  if (success) { _wake_success = true; return; }
   // first time often fails; if so, try again
   success = get_firmware_version(&version);
   if (success) { _wake_success = true; return; }

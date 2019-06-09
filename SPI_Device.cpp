@@ -21,6 +21,15 @@ void SPI_Device::enter(void) {
 void SPI_Device::exit(void) {
   digitalWrite(_cs_pin, HIGH);
   SPI.endTransaction();
+  // FIXME: this shouldn't be necessary, but it is.  Some possible causes:
+  // * the SPI bus and/or the PN532 doesn't like the CS pin being toggled
+  //   quickly between the _wait_ready() and _read_data() calls.  Fix: integrate
+  //   _read_data() and _write_data() into their callers (and push _enter() and
+  //   _exit() to the top level).  That is, we don't have to support UART/HSU and
+  //   I2C interfaces so no need to abstract that out.
+  // * the PN532 prefers using the IRQ pin to signal readiness, and the PSI
+  //   interface isn't perfectly implemented.  Fix: switch to using the IRQ pin.
+  delay(1);
 }
 uint8_t SPI_Device::transfer(uint8_t b) {
   return SPI.transfer(b);
