@@ -27,7 +27,7 @@ void SPI_Device::exit(void) {
   //   _read_data() and _write_data() into their callers (and push _enter() and
   //   _exit() to the top level).  That is, we don't have to support UART/HSU and
   //   I2C interfaces so no need to abstract that out.
-  // * the PN532 prefers using the IRQ pin to signal readiness, and the PSI
+  // * the PN532 prefers using the IRQ pin to signal readiness, and the SPI
   //   interface isn't perfectly implemented.  Fix: switch to using the IRQ pin.
   delay(1);
 }

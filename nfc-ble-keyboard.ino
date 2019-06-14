@@ -34,7 +34,7 @@ void loop() {
     Serial.print(F(" "));
     Serial.print(uid_len, DEC);
     Serial.println();
-    delay(3000);
+    delay(3000); // wait to avoid inadvertently scanning the same tag twice
   }
   else {
     Serial.println(F("Waiting for tag ..."));
